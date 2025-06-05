@@ -44,14 +44,32 @@
             android:name=".TouchService"
             android:exported="false" />
 
-        <activity android:name=".MainActivity"
-            android:theme="@style/Theme.Transparent"
+        <!-- 예전 메인 화면 -->
+<!--        <activity android:name=".MainActivity"-->
+<!--            android:theme="@style/Theme.Transparent"-->
+<!--            android:exported="true">-->
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.MAIN" />-->
+<!--                <category android:name="android.intent.category.LAUNCHER" />-->
+<!--            </intent-filter>-->
+<!--        </activity>-->
+
+        <!-- 앱 플로우차트 적용 -->
+        <activity android:name=".LobbyActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
+        <activity android:name=".SettingActivity"
+            android:windowSoftInputMode="adjustResize">
+        </activity>
+        <activity android:name=".CalibCamActivity"
+            android:exported="true">
+        </activity>
+        <activity android:name=".CalibHandActivity"
+            android:exported="true">
+        </activity>
     </application>
 </manifest>

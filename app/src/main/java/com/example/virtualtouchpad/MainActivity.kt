@@ -117,13 +117,13 @@ class MainActivity : ComponentActivity() {
     }
 
     // 액티비티 화면 진입 시: 서비스 측 카메라 중지 → 프리뷰 + 분석 시작
-    override fun onStart() {
-        super.onStart()
-
-        previewView.postDelayed({
-            startCameraWithAnalysis()
-        }, 300)
-    }
+//    override fun onStart() {
+//        super.onStart()
+//
+//        previewView.postDelayed({
+//            startCameraWithAnalysis()
+//        }, 300)
+//    }
 
 
     // 액티비티 화면 빠져나갈 때: 프리뷰 종료, 서비스 카메라 시작
