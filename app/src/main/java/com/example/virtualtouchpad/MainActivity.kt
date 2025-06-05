@@ -57,10 +57,6 @@ class MainActivity : ComponentActivity() {
             REQUEST_CODE_ALL_PERMISSIONS
         )
 
-        if (TouchAccessibilityService.instance == null) {
-            openAccessibilitySettings(this)
-        }
-
         if (!Settings.canDrawOverlays(this)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -114,9 +110,6 @@ class MainActivity : ComponentActivity() {
 
         val serviceIntent = Intent(this, HandInputService::class.java)
         bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
-
-        val intent = Intent(this, TouchService::class.java)
-        ContextCompat.startForegroundService(this, intent)
     }
 
     // 액티비티 화면 진입 시: 서비스 측 카메라 중지 → 프리뷰 + 분석 시작
@@ -191,12 +184,5 @@ class MainActivity : ComponentActivity() {
         )
         bitmap.copyPixelsFromBuffer(buffer)
         return Bitmap.createBitmap(bitmap, 0, 0, imageProxy.width, imageProxy.height)
-    }
-
-    // 접근성 제어 화면
-    fun openAccessibilitySettings(context: Context) {
-        val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        context.startActivity(intent)
     }
 }
