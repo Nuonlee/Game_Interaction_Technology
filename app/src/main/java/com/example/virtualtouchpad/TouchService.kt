@@ -2,22 +2,12 @@ package com.example.virtualtouchpad
 
 import android.app.*
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 
 class TouchService : Service() {
-    override fun onCreate() {
-        super.onCreate()
-        startForegroundService()
-        registerReceiver(receiver, IntentFilter("HAND_COORDINATES"), RECEIVER_NOT_EXPORTED)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(receiver)
-    }
-
     private fun startForegroundService() {
         val channelId = "touch_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -34,7 +24,16 @@ class TouchService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .build()
 
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                1,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            startForeground(1, notification)
+        }
     }
 
     private val receiver = object : BroadcastReceiver() {
@@ -62,6 +61,21 @@ class TouchService : Service() {
                 else -> Log.w("TouchService", "알 수 없는 type: $type")
             }
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Context.RECEIVER_NOT_EXPORTED
+        } else {
+            0
+        }
+        registerReceiver(receiver, IntentFilter("HAND_COORDINATES"), flags)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(receiver)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

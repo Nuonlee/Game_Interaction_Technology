@@ -60,14 +60,18 @@ class LandmarkFilterManager(
     beta: Double = 0.0,
     dCutoff: Double = 1.0
 ) {
-    private val filters = List(numPoints) {
+    private val uvFilters = List(numPoints) {
         OneEuroFilter2D(freq, minCutoff, beta, dCutoff)
+    }
+    private val zFilters = List(numPoints) {
+        OneEuroFilter(freq, minCutoff, beta, dCutoff)
     }
 
     fun filter(landmarks: List<Landmark>): List<Landmark> {
         return landmarks.mapIndexed { i, (u, v, z) ->
-            val (fu, fv) = filters[i].filter(u, v)
-            Landmark(fu, fv, z)
+            val (fu, fv) = uvFilters[i].filter(u, v)
+            val fz = zFilters[i].filter(z)
+            Landmark(fu, fv, fz)
         }
     }
 }

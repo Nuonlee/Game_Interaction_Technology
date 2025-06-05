@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private val REQUEST_CODE_ALL_PERMISSIONS = 100
     private var cameraCalibrated = false
     private var handCalibrating = false
+    private var servicesStarted = false
 
     // 서비스 바인딩 콜백
     private val connection = object : ServiceConnection {
@@ -68,6 +69,8 @@ class MainActivity : ComponentActivity() {
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
+        } else {
+            bindAndStartServices()
         }
 
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -76,7 +79,9 @@ class MainActivity : ComponentActivity() {
 
         val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                val success = handService?.saveCurrentFrame() ?: false
+                var success = false
+                if (!cameraCalibrated) success = handService?.saveCurrentFrame("camera") ?: false
+                else if (handCalibrating) success = handService?.saveCurrentFrame("hand") ?: false
                 Toast.makeText(this@MainActivity, if (success) "프레임 저장 완료" else "프레임 저장 실패", Toast.LENGTH_SHORT).show()
                 return true
             }
@@ -95,6 +100,7 @@ class MainActivity : ComponentActivity() {
                     handService?.isCalibrating = handCalibrating
 
                     if (handCalibrating) {
+                        val success = handService?.initHandCalibration()
                         Toast.makeText(this@MainActivity, "손 캘리브레이션 모드 진입", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(this@MainActivity, "손 캘리브레이션 모드 종료", Toast.LENGTH_SHORT).show()
@@ -125,6 +131,13 @@ class MainActivity : ComponentActivity() {
 //        }, 300)
 //    }
 
+    override fun onResume() {
+        super.onResume()
+        if (!servicesStarted && Settings.canDrawOverlays(this)) {
+            bindAndStartServices()
+        }
+    }
+
 
     // 액티비티 화면 빠져나갈 때: 프리뷰 종료, 서비스 카메라 시작
     override fun onStop() {
@@ -136,7 +149,10 @@ class MainActivity : ComponentActivity() {
     // 액티비티 종료 시: 서비스 언바인딩
     override fun onDestroy() {
         super.onDestroy()
-        unbindService(connection)
+        if (servicesStarted) {
+            unbindService(connection)
+            servicesStarted = false
+        }
     }
 
     // 카메라 프리뷰 + 분석용 카메라 시작
@@ -171,6 +187,18 @@ class MainActivity : ComponentActivity() {
     private fun stopCamera() {
         imageAnalysis?.clearAnalyzer()
         cameraProvider?.unbindAll()
+    }
+
+    private fun bindAndStartServices() {
+        if (servicesStarted) return
+
+        val serviceIntent = Intent(this, HandInputService::class.java)
+        bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+
+        val intent = Intent(this, TouchService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+
+        servicesStarted = true
     }
 
     // ImageProxy → Bitmap 변환 (MediaPipe에 전달하기 위해)
