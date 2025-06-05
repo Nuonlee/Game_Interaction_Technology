@@ -321,7 +321,11 @@ class HandInputService : LifecycleService() {
             PixelFormat.TRANSLUCENT
         )
 
-        windowManager.addView(pointerOverlay, params)
+        try {
+            windowManager.addView(pointerOverlay, params)
+        } catch (e: SecurityException) {
+            Log.e("HandInputService", "Failed to add overlay view", e)
+        }
     }
 
     // 손가락 깊이에 따른 터치

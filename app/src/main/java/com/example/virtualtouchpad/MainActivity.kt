@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private val REQUEST_CODE_ALL_PERMISSIONS = 100
     private var cameraCalibrated = false
     private var handCalibrating = false
+    private var servicesStarted = false
 
     // 서비스 바인딩 콜백
     private val connection = object : ServiceConnection {
@@ -57,6 +58,10 @@ class MainActivity : ComponentActivity() {
             REQUEST_CODE_ALL_PERMISSIONS
         )
 
+        if (TouchAccessibilityService.instance == null) {
+            openAccessibilitySettings(this)
+        }
+
         if (!Settings.canDrawOverlays(this)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -64,6 +69,8 @@ class MainActivity : ComponentActivity() {
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
+        } else {
+            bindAndStartServices()
         }
 
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -110,6 +117,9 @@ class MainActivity : ComponentActivity() {
 
         val serviceIntent = Intent(this, HandInputService::class.java)
         bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+
+        val intent = Intent(this, TouchService::class.java)
+        ContextCompat.startForegroundService(this, intent)
     }
 
     // 액티비티 화면 진입 시: 서비스 측 카메라 중지 → 프리뷰 + 분석 시작
@@ -119,6 +129,13 @@ class MainActivity : ComponentActivity() {
         previewView.postDelayed({
             startCameraWithAnalysis()
         }, 300)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!servicesStarted && Settings.canDrawOverlays(this)) {
+            bindAndStartServices()
+        }
     }
 
 
@@ -132,7 +149,10 @@ class MainActivity : ComponentActivity() {
     // 액티비티 종료 시: 서비스 언바인딩
     override fun onDestroy() {
         super.onDestroy()
-        unbindService(connection)
+        if (servicesStarted) {
+            unbindService(connection)
+            servicesStarted = false
+        }
     }
 
     // 카메라 프리뷰 + 분석용 카메라 시작
@@ -169,6 +189,18 @@ class MainActivity : ComponentActivity() {
         cameraProvider?.unbindAll()
     }
 
+    private fun bindAndStartServices() {
+        if (servicesStarted) return
+
+        val serviceIntent = Intent(this, HandInputService::class.java)
+        bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+
+        val intent = Intent(this, TouchService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+
+        servicesStarted = true
+    }
+
     // ImageProxy → Bitmap 변환 (MediaPipe에 전달하기 위해)
     private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
         val plane = imageProxy.planes[0]
@@ -184,5 +216,12 @@ class MainActivity : ComponentActivity() {
         )
         bitmap.copyPixelsFromBuffer(buffer)
         return Bitmap.createBitmap(bitmap, 0, 0, imageProxy.width, imageProxy.height)
+    }
+
+    // 접근성 제어 화면
+    fun openAccessibilitySettings(context: Context) {
+        val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
     }
 }
