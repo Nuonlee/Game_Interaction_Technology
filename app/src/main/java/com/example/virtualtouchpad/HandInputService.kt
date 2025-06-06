@@ -4,6 +4,7 @@ import android.content.*
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.provider.Settings
@@ -17,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import com.example.virtualtouchpad.filters.Landmark
 import com.example.virtualtouchpad.filters.LandmarkFilterManager
+import com.example.virtualtouchpad.filters.OneEuroFilter
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -54,6 +56,12 @@ class HandInputService : LifecycleService() {
         beta = 5.0,
         dCutoff = 1.0
     )
+    private val depthFilterManager = OneEuroFilter(
+        freq = 30.0,
+        minCutoff = 1.0,
+        beta = 5.0,
+        dCutoff = 1.0
+    )
 
     private var rotationMatrix: FloatArray? = null
     private var cameraPos: FloatArray? = null
@@ -62,15 +70,22 @@ class HandInputService : LifecycleService() {
     var isCalibrating = false
     private var captureHand = false
     private var frameIdx = 0
-    private var currentSessionId: String? = null
 
     private var isTouching = false
     private var alreadyTriggered = false
     private var touchStartTime: Long? = null
 
-    private val zPressThreshold = 0.05f
-    private val zReleaseThreshold = 0.04f
+    private var lastDragTime: Long = 0L
+
+    private val zPressThreshold = 0.010f
+    private val zReleaseThreshold = 0.015f
     private val longPressThreshold = 1500L
+
+    private var lastTouchX: Float? = null
+    private var lastTouchY: Float? = null
+    private var isDragging = false
+
+    private var captureCallback: ((Boolean) -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -96,6 +111,8 @@ class HandInputService : LifecycleService() {
         // TouchService 실행
         val intent = Intent(this, TouchService::class.java)
         startService(intent)
+
+        initHandCalibration()
     }
 
     override fun onDestroy() {
@@ -105,6 +122,11 @@ class HandInputService : LifecycleService() {
         stopCameraIfRunning()
         instance = null
         super.onDestroy()
+    }
+
+    private fun getStatusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
     }
 
     fun receiveBitmap(bitmap: Bitmap) {
@@ -125,17 +147,28 @@ class HandInputService : LifecycleService() {
         handLandmarker.detectAsync(mpImage, System.currentTimeMillis())
     }
 
-    fun saveCurrentFrame(type: String): Boolean {
-        val bitmap = lastBitmap ?: return false
-        return when (type) {
+    fun saveCurrentFrame(type: String, callback: (Boolean) -> Unit) {
+        val bitmap = lastBitmap
+        if (bitmap == null) {
+            callback(false)
+            return
+        }
+        when (type) {
             "camera" -> {
-                NativeLib.saveCalibrationImage(bitmap)
+                val result = NativeLib.saveCalibrationImage(bitmap)
+                callback(result)
             }
             "hand" -> {
-                captureHand = true
-                true
+                if (isCalibrating && isPoseValid) {
+                    captureHand = true
+                    captureCallback = callback
+                } else {
+                    callback(false)
+                }
             }
-            else -> false
+            else -> {
+                callback(false)
+            }
         }
     }
 
@@ -152,22 +185,21 @@ class HandInputService : LifecycleService() {
 
     // 손 캘리브레이션 준비
     fun initHandCalibration() {
-        val path = "$filesDir/calibration/hand"
-        File(path).apply {
-            mkdirs()
-            listFiles()?.forEach { it.delete() }
-        }
+        val path = filesDir.absolutePath + "/calibration/hand"
+        val dir = File(path)
+        dir.mkdirs()
+        dir.listFiles()?.forEach { it.delete() }
         frameIdx = 0
     }
 
     // 랜드마크 데이터를 파일로 저장
-    private fun saveLandmarksToFile(landmarks: List<Landmark>): Boolean {
+    private fun saveLandmarksToFile(landmarks: List<Landmark>, imageSize: Size): Boolean {
         if (cameraPos == null || rotationMatrix == null) {
             Log.e("Calib", "saveLandmarksToFile: cameraPos 혹은 rotationMatrix가 null")
             return false
         }
 
-        val sessionFolder = File("$filesDir/calibration/hand")
+        val sessionFolder = File(filesDir.absolutePath + "/calibration/hand")
         if (!sessionFolder.exists()) {
             Log.e("Calib", "saveLandmarksToFile: 폴더가 존재하지 않음")
             return false
@@ -186,12 +218,17 @@ class HandInputService : LifecycleService() {
                     out.write("\n")
                 }
                 landmarks.forEach { lm ->
-                    out.write("%.8f,%.8f\n".format(lm.u, lm.v))
+                    val px = (lm.v * imageSize.width).toFloat()
+                    val py = (lm.u * imageSize.height).toFloat()
+                    out.write("%.3f,%.3f\n".format(px, py))
                 }
             }
             true
         } catch (e: Exception) {
             Log.e("Calib", "saveLandmarksToFile: 파일 쓰기 오류", e)
+            if (filename.exists()) {
+                filename.delete()
+            }
             false
         }
     }
@@ -222,24 +259,30 @@ class HandInputService : LifecycleService() {
 
                     val landmarkArray = FloatArray(21 * 3)
                     filtered.forEachIndexed { idx, lm ->
-                        landmarkArray[idx * 3 + 0] = lm.v.toFloat()
-                        landmarkArray[idx * 3 + 1] = (1.0f - lm.u.toFloat())
-                        landmarkArray[idx * 3 + 2] = lm.z.toFloat()
+                        val px = (lm.v * imageWidth).toFloat()
+                        val py = (lm.u * imageHeight).toFloat()
+                        landmarkArray[idx*3 + 0] = px
+                        landmarkArray[idx*3 + 1] = py
+                        landmarkArray[idx*3 + 2] = lm.z.toFloat()
                     }
                     NativeLib.updateLandmarks(landmarkArray)
 
                     if (captureHand && isCalibrating && lastBitmap != null) {
-                        if (saveLandmarksToFile(filtered)) {
+                        val result = saveLandmarksToFile(filtered, Size(input.width, input.height))
+                        if (result) {
                             NativeLib.calibrateHandFromLandmarkFiles()
                         }
                         captureHand = false
+
+                        captureCallback?.invoke(result)
+                        captureCallback = null
                     }
 
                     // 랜드마크 계산
                     var xTip = 0.0f
                     var yTip = 0.0f
-                    val viewWidth = pointerOverlay.width.toFloat()
-                    val viewHeight = pointerOverlay.height.toFloat()
+                    val viewWidth = pointerOverlay.width.toDouble()
+                    val viewHeight = pointerOverlay.height.toDouble()
                     val scale = maxOf(viewWidth / imageWidth, viewHeight / imageHeight)
                     val dx = (viewWidth - imageWidth * scale) / 2f
                     val dy = (viewHeight - imageHeight * scale) / 2f
@@ -249,10 +292,10 @@ class HandInputService : LifecycleService() {
                         val screenX = (lm.u * imageWidth).toFloat() * scale + dx
                         val screenY = (lm.v * imageHeight).toFloat() * scale + dy
                         if (idx == 8) {
-                            xTip = screenX
-                            yTip = screenY
+                            xTip = screenX.toFloat()
+                            yTip = screenY.toFloat() + getStatusBarHeight()
                         }
-                        overlayLandmarks.add(Pair(screenX, screenY))
+                        overlayLandmarks.add(Pair(screenX.toFloat(), screenY.toFloat()))
                     }
 
                     // UI 업데이트
@@ -261,12 +304,12 @@ class HandInputService : LifecycleService() {
                     }
 
                     // 깊이 추정 및 z 메시지
-                    var zVal = Float.MAX_VALUE
+                    var zVal = Double.MAX_VALUE
                     var depthMsg = ""
                     if (isPoseValid && NativeLib.estimateDepth()) {
                         NativeLib.estimateIndexTip()
                         val tipCoord = NativeLib.getLandmarkWorld(8)
-                        zVal = tipCoord[2]
+                        zVal = depthFilterManager.filter(tipCoord[2].toDouble())
                         val zInCm = zVal * 100
                         depthMsg = if (zInCm < 0)
                             "마커 뒤쪽 %.1f cm".format(-zInCm)
@@ -284,7 +327,7 @@ class HandInputService : LifecycleService() {
                     }
 
                     // 터치 처리
-                    handleDepthTouch(this, xTip, yTip, zVal)
+                    handleDepthTouch(this, xTip, yTip, zVal.toFloat())
 
                 } ?: run {
                     // 손이 보이지 않는 경우
@@ -328,44 +371,115 @@ class HandInputService : LifecycleService() {
         }
     }
 
+    private fun sendTouchIntent(
+        context: Context,
+        x1: Float, y1: Float,
+        type: String,
+        x2: Float? = null,
+        y2: Float? = null
+    ) {
+        Intent("HAND_COORDINATES").also { intent ->
+            intent.putExtra("x", x1)
+            intent.putExtra("y", y1)
+            intent.putExtra("type", type)
+            if (type == "drag" && x2 != null && y2 != null) {
+                intent.putExtra("x2", x2)
+                intent.putExtra("y2", y2)
+            }
+            context.sendBroadcast(intent)
+        }
+    }
+
     // 손가락 깊이에 따른 터치
     private fun handleDepthTouch(context: Context, x: Float, y: Float, z: Float) {
         val now = System.currentTimeMillis()
 
         if (isCalibrating) {
-            // 캘리브레이션 중이면 상태 초기화
             isTouching = false
+            isDragging = false
             alreadyTriggered = false
             touchStartTime = null
             return
         }
 
-        // Press 상태 진입
         if (!isTouching && z < zPressThreshold) {
             touchStartTime = now
             isTouching = true
+            isDragging = false
             alreadyTriggered = false
+
+            lastTouchX = x
+            lastTouchY = y
+
+            lastDragTime = now
         }
 
-        // Press 중인 상태
         if (isTouching) {
             if (z < zReleaseThreshold) {
-                // 여전히 누르고 있는 상태(손이 화면 가까이)
                 val held = now - (touchStartTime ?: now)
+
+                val prevX = lastTouchX ?: x
+                val prevY = lastTouchY ?: y
+
+                val dx = x - prevX
+                val dy = y - prevY
+                val distSq = dx * dx + dy * dy
+                val dragThresholdSq = 100f
+
+                // 드래그 시작
+                if (distSq > dragThresholdSq && !isDragging) {
+                    isDragging = true
+                    lastDragTime = now
+                }
+
+                if (isDragging) {
+                    val frameInterval = 33L
+                    val elapsed = now - lastDragTime
+                    // 최소 1단계 이상 보간하도록
+                    val steps = maxOf(1, (elapsed / frameInterval).toInt())
+
+                    var fromX = prevX
+                    var fromY = prevY
+
+                    for (i in 1..steps) {
+                        val t = i.toFloat() / steps.toFloat()
+                        val midX = prevX + (x - prevX) * t
+                        val midY = prevY + (y - prevY) * t
+                        sendTouchIntent(context, fromX, fromY, "drag", midX, midY)
+
+                        fromX = midX
+                        fromY = midY
+                    }
+
+                    lastDragTime = now
+                }
+
+                // 롱 프레스
                 if (held >= longPressThreshold && !alreadyTriggered) {
                     alreadyTriggered = true
-                    Log.d("TouchLogic", "롱터치 실행")
                     sendTouchIntent(context, x, y, "long_press")
                 }
+
+                // 터치 좌표 갱신
+                lastTouchX = x
+                lastTouchY = y
+
             } else {
-                // 손을 들어올려서 Release 상태
-                if (!alreadyTriggered) {
-                    Log.d("TouchLogic", "탭 실행")
+                if (isDragging) {
+                    val prevX = lastTouchX ?: x
+                    val prevY = lastTouchY ?: y
+                    sendTouchIntent(context, prevX, prevY, "drag", x, y)
+                } else if (!alreadyTriggered) {
                     sendTouchIntent(context, x, y, "tap")
                 }
+
+                // 상태 초기화
                 isTouching = false
+                isDragging = false
                 alreadyTriggered = false
                 touchStartTime = null
+                lastTouchX = null
+                lastTouchY = null
             }
         }
     }

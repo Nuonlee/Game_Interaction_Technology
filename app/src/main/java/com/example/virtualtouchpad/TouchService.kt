@@ -54,8 +54,12 @@ class TouchService : Service() {
                 "long_press" -> service.performLongPress(x, y)
                 "double_tap" -> service.performDoubleTap(x, y)
                 "drag" -> {
-                    val x2 = intent.getFloatExtra("x2", x)
-                    val y2 = intent.getFloatExtra("y2", y)
+                    val x2 = intent.getFloatExtra("x2", Float.MIN_VALUE)
+                    val y2 = intent.getFloatExtra("y2", Float.MIN_VALUE)
+                    if (x2 < 0 || y2 < 0) {
+                        Log.w("TouchService", "Invalid drag end coordinates: x2=$x2, y2=$y2")
+                        return
+                    }
                     service.performDrag(x, y, x2, y2)
                 }
                 else -> Log.w("TouchService", "알 수 없는 type: $type")
