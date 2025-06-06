@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
     private var cameraCalibrated = false
     private var handCalibrating = false
     private var servicesStarted = false
+    private var currentToast: Toast? = null
 
     // 서비스 바인딩 콜백
     private val connection = object : ServiceConnection {
@@ -79,10 +80,19 @@ class MainActivity : ComponentActivity() {
 
         val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: MotionEvent): Boolean {
-                var success = false
-                if (!cameraCalibrated) success = handService?.saveCurrentFrame("camera") ?: false
-                else if (handCalibrating) success = handService?.saveCurrentFrame("hand") ?: false
-                Toast.makeText(this@MainActivity, if (success) "프레임 저장 완료" else "프레임 저장 실패", Toast.LENGTH_SHORT).show()
+                if (!cameraCalibrated) {
+                    handService?.saveCurrentFrame("camera") { success ->
+                        this@MainActivity.runOnUiThread {
+                            overlayToast(if (success) "프레임 저장 완료" else "프레임 저장 실패")
+                        }
+                    }
+                } else if (handCalibrating) {
+                    handService?.saveCurrentFrame("hand") { success ->
+                        this@MainActivity.runOnUiThread {
+                            overlayToast(if (success) "프레임 저장 완료" else "프레임 저장 실패")
+                        }
+                    }
+                }
                 return true
             }
 
@@ -91,9 +101,9 @@ class MainActivity : ComponentActivity() {
                     val success = handService?.runCalibration() ?: false
                     if (success) {
                         cameraCalibrated = true
-                        Toast.makeText(this@MainActivity, "카메라 캘리브레이션 완료", Toast.LENGTH_SHORT).show()
+                        overlayToast("카메라 캘리브레이션 완료")
                     } else {
-                        Toast.makeText(this@MainActivity, "카메라 캘리브레이션 실패", Toast.LENGTH_SHORT).show()
+                        overlayToast("카메라 캘리브레이션 실패")
                     }
                 } else {
                     handCalibrating = !handCalibrating
@@ -101,9 +111,9 @@ class MainActivity : ComponentActivity() {
 
                     if (handCalibrating) {
                         val success = handService?.initHandCalibration()
-                        Toast.makeText(this@MainActivity, "손 캘리브레이션 모드 진입", Toast.LENGTH_SHORT).show()
+                        overlayToast("손 캘리브레이션 모드 진입")
                     } else {
-                        Toast.makeText(this@MainActivity, "손 캘리브레이션 모드 종료", Toast.LENGTH_SHORT).show()
+                        overlayToast("손 캘리브레이션 모드 종료")
                     }
                 }
             }
@@ -223,5 +233,11 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
         context.startActivity(intent)
+    }
+
+    fun overlayToast(text: String) {
+        currentToast?.cancel()
+        currentToast = Toast.makeText(this@MainActivity, text, Toast.LENGTH_SHORT)
+        currentToast?.show()
     }
 }

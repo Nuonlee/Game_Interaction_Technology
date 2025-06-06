@@ -261,11 +261,6 @@ Java_com_example_virtualtouchpad_NativeLib_uvToWorldDir(JNIEnv *env, jobject, jf
         return nullptr;
     }
 
-    if (isNormalized) {
-        u *= imgWidth;
-        v *= imgHeight;
-    }
-
     cv::Mat uv_h = (cv::Mat_<double>(3, 1) << u, v, 1.0);
     cv::Mat ray_cam = g_Kinv * uv_h;
     ray_cam /= cv::norm(ray_cam);
@@ -472,7 +467,7 @@ Java_com_example_virtualtouchpad_NativeLib_estimateDepth(JNIEnv *, jobject) {
     );
 
     float z_min = 0.01f, z_max = 0.8f;
-    int   samples = 50, best_idx = -1;
+    int   samples = 1000, best_idx = -1;
     float best_error = FLT_MAX;
     cv::Point3f best0, best5, best9;
 
