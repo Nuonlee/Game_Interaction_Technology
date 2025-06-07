@@ -19,12 +19,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.core.*
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
+import android.app.AlertDialog
 
+import android.util.Log
 
 class CalibCamActivity : AppCompatActivity() {
     private lateinit var previewView: PreviewView
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageAnalysis: ImageAnalysis? = null
+    private var captuerdFrameNum = 0
 
     private var handService: HandInputService? = null
     private var servicesStarted = false
@@ -51,6 +54,9 @@ class CalibCamActivity : AppCompatActivity() {
         bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
         servicesStarted = true
 
+        val textCamCalibedNum = findViewById<TextView>(R.id.TextCamCalibedNum)
+        textCamCalibedNum.setText(captuerdFrameNum.toString())
+
         // 버튼 기능 할당
         val buttonBackward = findViewById<ImageButton>(R.id.button_back_calibCam)
         val buttonCapture = findViewById<ImageButton>(R.id.Button_CamCalib_Capture)
@@ -59,11 +65,29 @@ class CalibCamActivity : AppCompatActivity() {
             finish()
         }
         buttonCapture.setOnClickListener {
-            val success = handService?.runCalibration() ?: false
-            if (success) {
-                Toast.makeText(this, "카메라 캘리브레이션 완료", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "카메라 캘리브레이션 실패", Toast.LENGTH_SHORT).show()
+            Log.d("MyTag", "Touched Capture Button")
+
+            textCamCalibedNum.setText(captuerdFrameNum.toString())
+            handService?.saveCurrentFrame("camera") { success ->
+                this.runOnUiThread {
+                    if (success) {
+                        captuerdFrameNum++
+                    }
+                    else {
+                        Toast.makeText(this, "프레임 저장 실패", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            if (captuerdFrameNum >= 5) {
+                val success = handService?.runCalibration() ?: false
+
+                if (success) {
+                    noticeActivityWillClose()
+                    handService?.isCalibrating
+                } else {
+                    Toast.makeText(this, "카메라 캘리브레이션 실패", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -75,9 +99,7 @@ class CalibCamActivity : AppCompatActivity() {
             val preview = Preview.Builder()
                 .setTargetResolution(Size(640, 480))
                 .build()
-                .also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
+                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
             imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(Size(640, 480))
@@ -91,14 +113,8 @@ class CalibCamActivity : AppCompatActivity() {
                 imageProxy.close()
             }
 
-            try {
-                cameraProvider?.unbindAll()
-                cameraProvider?.bindToLifecycle(
-                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            cameraProvider?.unbindAll()
+            cameraProvider?.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
         }, ContextCompat.getMainExecutor(this))
 
     }
@@ -131,5 +147,15 @@ class CalibCamActivity : AppCompatActivity() {
         )
         bitmap.copyPixelsFromBuffer(buffer)
         return Bitmap.createBitmap(bitmap, 0, 0, imageProxy.width, imageProxy.height)
+    }
+
+    private fun noticeActivityWillClose(){
+        AlertDialog.Builder(this)
+            .setMessage("캘리브레이션이 완료되었습니다. 이전 화면으로 돌아갑니다.")
+            .setPositiveButton("확인") { _, _ ->
+                finish()  // 현재 Activity 종료
+            }
+            .setCancelable(false)
+            .show()
     }
 }
