@@ -369,6 +369,7 @@ class HandInputService : LifecycleService() {
         } catch (e: SecurityException) {
             Log.e("HandInputService", "Failed to add overlay view", e)
         }
+
     }
 
     private fun sendTouchIntent(

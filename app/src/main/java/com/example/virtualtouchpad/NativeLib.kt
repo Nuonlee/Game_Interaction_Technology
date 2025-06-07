@@ -18,4 +18,5 @@ object NativeLib {
     external fun estimateDepth(): Boolean
     external fun estimateIndexTip(): Boolean
     external fun getLandmarkWorld(index: Int): FloatArray
+    external fun getLandmarkLength(key: String): Float
 }

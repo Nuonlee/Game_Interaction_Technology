@@ -44,26 +44,46 @@ class LobbyActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_lobby)
 
-//        val serviceIntent = Intent(this, HandInputService::class.java)
-//        bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ),
+            100
+        )
+
+        if (TouchAccessibilityService.instance == null) {
+            openAccessibilitySettings(this)
+        }
+
+        if (!Settings.canDrawOverlays(this)) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        }
+
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val buttonStart = findViewById<Button>(R.id.button_start)
         val buttonSetting = findViewById<Button>(R.id.button_setting)
         buttonStart.setOnClickListener {
-            // Move to execution of virtual touch
-//            val intent1 = Intent(this, MainActivity::class.java)
-//            startActivity(intent1)
-            //Toast.makeText(this, "현재 비활성화된 기능", Toast.LENGTH_SHORT).show()
-            if (HandInputService.instance != null) {
-                Toast.makeText(this, "A", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "B", Toast.LENGTH_SHORT).show()
-            }
+            val intent1 = Intent(this, SampleActivity::class.java)
+            startActivity(intent1)
         }
         buttonSetting.setOnClickListener {
             // Move to setting
             val intent2 = Intent(this, SettingActivity::class.java)
             startActivity(intent2)
         }
+    }
+    fun openAccessibilitySettings(context: Context) {
+        val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
     }
 }

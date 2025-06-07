@@ -585,3 +585,24 @@ Java_com_example_virtualtouchpad_NativeLib_getLandmarkWorld(JNIEnv *env, jobject
     env->SetFloatArrayRegion(result, 0, 3, data);
     return result;
 }
+
+extern "C"
+JNIEXPORT jfloat JNICALL
+Java_com_example_virtualtouchpad_NativeLib_getLandmarkLength(
+        JNIEnv* env,
+        jobject /* this */,
+        jstring key
+) {
+    // jstring → const char*
+    const char* key_cstr = env->GetStringUTFChars(key, nullptr);
+    std::string key_str(key_cstr); // 안전하게 std::string으로 복사
+    env->ReleaseStringUTFChars(key, key_cstr); // 리소스 해제 (꼭 필요!)
+
+    // 값 조회
+    auto it = g_landmark_len.find(key_str);
+    if (it != g_landmark_len.end()) {
+        return it->second;
+    } else {
+        return -1.0f; // 키 없음 처리
+    }
+}

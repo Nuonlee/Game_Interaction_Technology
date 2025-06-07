@@ -18,7 +18,8 @@
             android:background="#B6B6B6"
             android:elevation="16dp"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            tools:visibility="gone">
 
             <ImageButton
                 android:id="@+id/button_back_calibHand"

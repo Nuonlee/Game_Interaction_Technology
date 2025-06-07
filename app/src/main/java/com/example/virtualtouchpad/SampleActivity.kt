@@ -1,33 +1,24 @@
 package com.example.virtualtouchpad
 
-import android.content.ComponentName
-import android.content.Intent
-import android.content.ServiceConnection
-import android.os.Bundle
-import android.os.IBinder
-import androidx.appcompat.app.AppCompatActivity
 import android.content.*
 import android.graphics.Bitmap
+import android.os.Bundle
+import android.os.IBinder
+import android.provider.Settings
 import android.util.Size
-import android.widget.ImageButton
-import android.widget.TextView
-import android.widget.Toast
-import androidx.camera.view.PreviewView
-import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.activity.ComponentActivity
 import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
-import android.app.AlertDialog
 
-import android.util.Log
-import kotlin.math.log
-
-class CalibCamActivity : AppCompatActivity() {
+// 앱 화면이 실행되면 작동
+// 카메라 화면을 확인하기 위한 용도
+class SampleActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private var cameraProvider: ProcessCameraProvider? = null
     private var imageAnalysis: ImageAnalysis? = null
-    private var captuerdFrameNum = 0
-
     private var handService: HandInputService? = null
     private var servicesStarted = false
 
@@ -43,54 +34,58 @@ class CalibCamActivity : AppCompatActivity() {
         }
     }
 
+    // 액티비티 생성 시: UI 초기화 및 서비스 바인딩
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        supportActionBar?.hide()
+        setContentView(R.layout.activity_sample)
 
-        setContentView(R.layout.activity_calib_cam)
+        bindAndStartServices()
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        previewView = findViewById(R.id.previewView)
 
         val serviceIntent = Intent(this, HandInputService::class.java)
         bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
-        servicesStarted = true
 
-        val textCamCalibedNum = findViewById<TextView>(R.id.TextCamCalibedNum)
-        textCamCalibedNum.setText(captuerdFrameNum.toString())
+        val intent = Intent(this, TouchService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+    }
 
-        // 버튼 기능 할당
-        val buttonBackward = findViewById<ImageButton>(R.id.button_back_calibCam)
-        val buttonCapture = findViewById<ImageButton>(R.id.Button_CamCalib_Capture)
+    // 액티비티 화면 진입 시: 서비스 측 카메라 중지 → 프리뷰 + 분석 시작
+    override fun onStart() {
+        super.onStart()
 
-        buttonBackward.setOnClickListener {
-            finish()
+        previewView.postDelayed({
+            startCameraWithAnalysis()
+        }, 300)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!servicesStarted && Settings.canDrawOverlays(this)) {
+            bindAndStartServices()
         }
-        buttonCapture.setOnClickListener {
-            Log.d("MyTag", "Touched Capture Button")
+    }
 
-            handService?.saveCurrentFrame("camera") { success ->
-                this.runOnUiThread {
-                    if (success) {
-                        captuerdFrameNum++
-                        textCamCalibedNum.setText(captuerdFrameNum.toString())
-                    }
-                    else {
-                        Toast.makeText(this, "프레임 저장 실패", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
 
-            if (captuerdFrameNum >= 5) {
-                val success = handService?.runCalibration() ?: false
+    // 액티비티 화면 빠져나갈 때: 프리뷰 종료, 서비스 카메라 시작
+    override fun onStop() {
+        super.onStop()
+        stopCamera()
+        handService!!.startCameraIfNeeded()
+    }
 
-                if (success) {
-                    noticeActivityWillClose()
-                    handService?.isCalibrating
-                } else {
-                    Toast.makeText(this, "카메라 캘리브레이션 실패", Toast.LENGTH_SHORT).show()
-                }
-            }
+    // 액티비티 종료 시: 서비스 언바인딩
+    override fun onDestroy() {
+        super.onDestroy()
+        if (servicesStarted) {
+            unbindService(connection)
+            servicesStarted = false
         }
+    }
 
-        previewView = findViewById(R.id.previewView)
+    // 카메라 프리뷰 + 분석용 카메라 시작
+    private fun startCameraWithAnalysis() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
             cameraProvider = cameraProviderFuture.get()
@@ -115,24 +110,27 @@ class CalibCamActivity : AppCompatActivity() {
             cameraProvider?.unbindAll()
             cameraProvider?.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
         }, ContextCompat.getMainExecutor(this))
-
     }
 
-    override fun onStop() {
-        super.onStop()
+    // 프리뷰와 분석 해제
+    private fun stopCamera() {
         imageAnalysis?.clearAnalyzer()
         cameraProvider?.unbindAll()
-        handService!!.startCameraIfNeeded()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        if (servicesStarted) {
-            unbindService(connection)
-            servicesStarted = false
-        }
+    private fun bindAndStartServices() {
+        if (servicesStarted) return
+
+        val serviceIntent = Intent(this, HandInputService::class.java)
+        bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+
+        val intent = Intent(this, TouchService::class.java)
+        ContextCompat.startForegroundService(this, intent)
+
+        servicesStarted = true
     }
 
+    // ImageProxy → Bitmap 변환 (MediaPipe에 전달하기 위해)
     private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
         val plane = imageProxy.planes[0]
         val buffer = plane.buffer
@@ -147,15 +145,5 @@ class CalibCamActivity : AppCompatActivity() {
         )
         bitmap.copyPixelsFromBuffer(buffer)
         return Bitmap.createBitmap(bitmap, 0, 0, imageProxy.width, imageProxy.height)
-    }
-
-    private fun noticeActivityWillClose(){
-        AlertDialog.Builder(this)
-            .setMessage("캘리브레이션이 완료되었습니다. 이전 화면으로 돌아갑니다.")
-            .setPositiveButton("확인") { _, _ ->
-                finish()  // 현재 Activity 종료
-            }
-            .setCancelable(false)
-            .show()
     }
 }

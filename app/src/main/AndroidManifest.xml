@@ -73,5 +73,8 @@
         <activity android:name=".CalibHandActivity"
             android:exported="true">
         </activity>
+        <activity android:name=".SampleActivity"
+            android:exported="true">
+        </activity>
     </application>
 </manifest>
